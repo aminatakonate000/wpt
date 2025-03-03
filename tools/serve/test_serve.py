@@ -1,3 +1,5 @@
+# mypy: allow-untyped-defs
+
 import logging
 import os
 import pickle
@@ -7,7 +9,7 @@ import pytest
 
 import localpaths  # type: ignore
 from . import serve
-from .serve import ConfigBuilder
+from .serve import ConfigBuilder, inject_script
 
 
 logger = logging.getLogger()
@@ -23,14 +25,18 @@ def test_make_hosts_file_nix():
                        not_subdomains={"x, y"}) as c:
         hosts = serve.make_hosts_file(c, "192.168.42.42")
         lines = hosts.split("\n")
-        assert set(lines) == {"",
-                              "192.168.42.42\tfoo.bar",
-                              "192.168.42.42\tfoo2.bar",
-                              "192.168.42.42\ta.foo.bar",
-                              "192.168.42.42\ta.foo2.bar",
-                              "192.168.42.42\tb.foo.bar",
-                              "192.168.42.42\tb.foo2.bar"}
-        assert lines[-1] == ""
+        assert lines == [
+            "# Start web-platform-tests hosts",
+            "192.168.42.42\tfoo.bar",
+            "192.168.42.42\ta.foo.bar",
+            "192.168.42.42\tb.foo.bar",
+            "192.168.42.42\tfoo2.bar",
+            "192.168.42.42\ta.foo2.bar",
+            "192.168.42.42\tb.foo2.bar",
+            "# End web-platform-tests hosts",
+            "",
+        ]
+
 
 @pytest.mark.skipif(platform.uname()[0] != "Windows",
                     reason="Expected contents are platform-dependent")
@@ -43,18 +49,21 @@ def test_make_hosts_file_windows():
                        not_subdomains={"x", "y"}) as c:
         hosts = serve.make_hosts_file(c, "192.168.42.42")
         lines = hosts.split("\n")
-        assert set(lines) == {"",
-                              "0.0.0.0\tx.foo.bar",
-                              "0.0.0.0\tx.foo2.bar",
-                              "0.0.0.0\ty.foo.bar",
-                              "0.0.0.0\ty.foo2.bar",
-                              "192.168.42.42\tfoo.bar",
-                              "192.168.42.42\tfoo2.bar",
-                              "192.168.42.42\ta.foo.bar",
-                              "192.168.42.42\ta.foo2.bar",
-                              "192.168.42.42\tb.foo.bar",
-                              "192.168.42.42\tb.foo2.bar"}
-        assert lines[-1] == ""
+        assert lines == [
+            "# Start web-platform-tests hosts",
+            "192.168.42.42\tfoo.bar",
+            "192.168.42.42\ta.foo.bar",
+            "192.168.42.42\tb.foo.bar",
+            "192.168.42.42\tfoo2.bar",
+            "192.168.42.42\ta.foo2.bar",
+            "192.168.42.42\tb.foo2.bar",
+            "0.0.0.0\tx.foo.bar",
+            "0.0.0.0\ty.foo.bar",
+            "0.0.0.0\tx.foo2.bar",
+            "0.0.0.0\ty.foo2.bar",
+            "# End web-platform-tests hosts",
+            "",
+        ]
 
 
 def test_ws_doc_root_default():
@@ -107,3 +116,41 @@ def test_alternate_host_invalid(primary, alternate):
 ])
 def test_alternate_host_valid(primary, alternate):
     ConfigBuilder(logger, browser_host=primary, alternate_hosts={"alt": alternate})
+
+
+# A token marking the location of expected script injection.
+INJECT_SCRIPT_MARKER = b"<!-- inject here -->"
+
+
+def test_inject_script_after_head():
+    html = b"""<!DOCTYPE html>
+    <html>
+        <head>
+        <!-- inject here --><script src="test.js"></script>
+        </head>
+        <body>
+        </body>
+    </html>"""
+    assert INJECT_SCRIPT_MARKER in html
+    assert inject_script(html.replace(INJECT_SCRIPT_MARKER, b""), INJECT_SCRIPT_MARKER) == html
+
+
+def test_inject_script_no_html_head():
+    html = b"""<!DOCTYPE html>
+    <!-- inject here --><div></div>"""
+    assert INJECT_SCRIPT_MARKER in html
+    assert inject_script(html.replace(INJECT_SCRIPT_MARKER, b""), INJECT_SCRIPT_MARKER) == html
+
+
+def test_inject_script_no_doctype():
+    html = b"""<!-- inject here --><div></div>"""
+    assert INJECT_SCRIPT_MARKER in html
+    assert inject_script(html.replace(INJECT_SCRIPT_MARKER, b""), INJECT_SCRIPT_MARKER) == html
+
+
+def test_inject_script_parse_error():
+    html = b"""<!--<!-- inject here --><div></div>"""
+    assert INJECT_SCRIPT_MARKER in html
+    # On a parse error, the script should not be injected and the original content should be
+    # returned.
+    assert INJECT_SCRIPT_MARKER not in inject_script(html.replace(INJECT_SCRIPT_MARKER, b""), INJECT_SCRIPT_MARKER)

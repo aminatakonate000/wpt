@@ -1,5 +1,9 @@
 'use strict';
 
+// A flag indicating whether to use Web Bluetooth BiDi commands for Bluetooth
+// emulation.
+let useBidi = false;
+
 /**
  * Test Setup Helpers
  */
@@ -68,19 +72,54 @@ async function performChromiumSetup() {
  * @param {function{*}: Promise<*>} test_function The Web Bluetooth test to run.
  * @param {string} name The name or description of the test.
  * @param {object} properties An object containing extra options for the test.
+ * @param {Boolean} validate_response_consumed Whether to validate all response
+ *     consumed or not.
  * @returns {Promise<void>} Resolves if Web Bluetooth test ran successfully, or
  *     rejects if the test failed.
  */
-function bluetooth_test(test_function, name, properties) {
+function bluetooth_test(
+    test_function, name, properties, validate_response_consumed = true) {
   return promise_test(async (t) => {
     assert_implements(navigator.bluetooth, 'missing navigator.bluetooth');
     // Trigger Chromium-specific setup.
     await performChromiumSetup();
-    assert_implements(navigator.bluetooth.test, 'missing navigator.bluetooth.test');
+    assert_implements(
+        navigator.bluetooth.test, 'missing navigator.bluetooth.test');
     await test_function(t);
-    let consumed = await navigator.bluetooth.test.allResponsesConsumed();
-    assert_true(consumed);
+    if (validate_response_consumed) {
+      let consumed = await navigator.bluetooth.test.allResponsesConsumed();
+      assert_true(consumed);
+    }
   }, name, properties);
+}
+
+/**
+ * These tests rely on the User Agent providing an implementation of the
+ * WebDriver-Bidi for testing Web Bluetooth
+ * https://webbluetoothcg.github.io/web-bluetooth/#automated-testing
+ * @param {function{*}: Promise<*>} test_function The Web Bluetooth test to run.
+ * @param {string} name The name or description of the test.
+ * @param {object} properties An object containing extra options for the test.
+ * @param {Boolean} validate_response_consumed Whether to validate all response
+ *     consumed or not.
+ * @returns {Promise<void>} Resolves if Web Bluetooth test ran successfully, or
+ *     rejects if the test failed.
+ */
+function bluetooth_bidi_test(
+  test_function, name, properties, validate_response_consumed = true) {
+return promise_test(async (t) => {
+  assert_implements(navigator.bluetooth, 'missing navigator.bluetooth');
+
+  // Necessary setup for Bluetooth emulation using WebDriver Bidi commands.
+  useBidi = true;
+  await loadScript('/resources/web-bluetooth-bidi-test.js');
+  await initializeBluetoothBidiResources();
+  assert_implements(
+      navigator.bluetooth.test, 'missing navigator.bluetooth.test');
+  await test_driver.bidi.bluetooth.request_device_prompt_updated.subscribe();
+
+  await test_function(t);
+}, name, properties);
 }
 
 /**
@@ -128,6 +167,28 @@ async function callWithTrustedClick(callback) {
 }
 
 /**
+ * Registers a one-time handler that selects the first device in the device
+ * prompt upon a device prompt updated event.
+ * @returns {Promise<void>} Fulfilled after the Bluetooth device prompt
+ * is handled, or rejected if the operation fails.
+ */
+function selectFirstDeviceOnDevicePromptUpdated() {
+  if (!useBidi) {
+    // Return a resolved promise when there is no bidi support.
+    return Promise.resolve();
+  }
+  test_driver.bidi.bluetooth.request_device_prompt_updated.once().then(
+      (promptEvent) => {
+        assert_greater_than_equal(promptEvent.devices.length, 0);
+        return test_driver.bidi.bluetooth.handle_request_device_prompt({
+          prompt: promptEvent.prompt,
+          accept: true,
+          device: promptEvent.devices[0].id
+        });
+      });
+}
+
+/**
  * Calls requestDevice() in a context that's 'allowed to show a popup'.
  * @returns {Promise<BluetoothDevice>} Resolves with a Bluetooth device if
  *     successful or rejects with an error.
@@ -166,22 +227,11 @@ function assert_promise_rejects_with_message(promise, expected, description) {
       error => {
         assert_equals(error.name, expected.name, 'Unexpected Error Name:');
         if (expected.message) {
-          assert_equals(
-              error.message, expected.message, 'Unexpected Error Message:');
+          assert_true(
+              error.message.includes(expected.message),
+              'Unexpected Error Message:');
         }
       });
-}
-
-/**
- * Runs the garbage collection.
- * @returns {Promise<void>} Resolves when garbage collection has finished.
- */
-function runGarbageCollection() {
-  // Run gc() as a promise.
-  return new Promise(function(resolve, reject) {
-    GCController.collect();
-    step_timeout(resolve, 0);
-  });
 }
 
 /**

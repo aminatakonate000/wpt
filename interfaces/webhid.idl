@@ -7,17 +7,23 @@
     [SameObject] readonly attribute HID hid;
 };
 
-[Exposed=Window, SecureContext]
+[Exposed=(DedicatedWorker,ServiceWorker), SecureContext]
+partial interface WorkerNavigator {
+    [SameObject] readonly attribute HID hid;
+};
+
+[Exposed=(DedicatedWorker,ServiceWorker,Window), SecureContext]
 interface HID : EventTarget {
     attribute EventHandler onconnect;
     attribute EventHandler ondisconnect;
     Promise<sequence<HIDDevice>> getDevices();
-    Promise<sequence<HIDDevice>> requestDevice(
+    [Exposed=Window] Promise<sequence<HIDDevice>> requestDevice(
         HIDDeviceRequestOptions options);
 };
 
 dictionary HIDDeviceRequestOptions {
     required sequence<HIDDeviceFilter> filters;
+    sequence<HIDDeviceFilter> exclusionFilters;
 };
 
 dictionary HIDDeviceFilter {
@@ -27,7 +33,7 @@ dictionary HIDDeviceFilter {
     unsigned short usage;
 };
 
-[Exposed=Window, SecureContext]
+[Exposed=(DedicatedWorker,ServiceWorker,Window), SecureContext]
 interface HIDDevice : EventTarget {
     attribute EventHandler oninputreport;
     readonly attribute boolean opened;
@@ -37,6 +43,7 @@ interface HIDDevice : EventTarget {
     readonly attribute FrozenArray<HIDCollectionInfo> collections;
     Promise<undefined> open();
     Promise<undefined> close();
+    Promise<undefined> forget();
     Promise<undefined> sendReport([EnforceRange] octet reportId, BufferSource data);
     Promise<undefined> sendFeatureReport(
         [EnforceRange] octet reportId,
@@ -44,7 +51,7 @@ interface HIDDevice : EventTarget {
     Promise<DataView> receiveFeatureReport([EnforceRange] octet reportId);
 };
 
-[Exposed=Window, SecureContext]
+[Exposed=(DedicatedWorker,ServiceWorker,Window), SecureContext]
 interface HIDConnectionEvent : Event {
     constructor(DOMString type, HIDConnectionEventInit eventInitDict);
     [SameObject] readonly attribute HIDDevice device;
@@ -54,7 +61,7 @@ dictionary HIDConnectionEventInit : EventInit {
     required HIDDevice device;
 };
 
-[Exposed=Window, SecureContext]
+[Exposed=(DedicatedWorker,ServiceWorker,Window), SecureContext]
 interface HIDInputReportEvent : Event {
     constructor(DOMString type, HIDInputReportEventInit eventInitDict);
     [SameObject] readonly attribute HIDDevice device;

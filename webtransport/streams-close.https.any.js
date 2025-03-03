@@ -161,12 +161,15 @@ promise_test(async t => {
   const e = new WebTransportError({streamErrorCode: WT_CODE});
   // Write a chunk, close the stream, and then abort the stream immediately to
   // abort the closing operation.
+  // TODO: Check that the abort promise is correctly rejected/resolved based on
+  // the spec discussion at https://github.com/whatwg/streams/issues/1203.
   await writer.write(chunk);
   const close_promise = writer.close();
-  await writer.abort(e);
+  const abort_promise = writer.abort(e);
 
   await promise_rejects_exactly(t, e, close_promise, 'close_promise');
   await promise_rejects_exactly(t, e, writer.closed, '.closed');
+  await promise_rejects_exactly(t, e, abort_promise, 'abort_promise');
   writer.releaseLock();
 
   await wait(10);
@@ -201,7 +204,7 @@ promise_test(async t => {
 }, 'Abort unidirectional stream with default error code');
 
 promise_test(async t => {
-  const WT_CODE = 240;
+  const WT_CODE = 0;
   const HTTP_CODE = webtransport_code_to_http_code(WT_CODE);
   const wt = new WebTransport(
     webtransport_url(`abort-stream-from-server.py?code=${HTTP_CODE}`));
@@ -226,7 +229,7 @@ promise_test(async t => {
 }, 'STOP_SENDING coming from server');
 
 promise_test(async t => {
-  const WT_CODE = 127;
+  const WT_CODE = 0xffffffff;
   const HTTP_CODE = webtransport_code_to_http_code(WT_CODE);
   const wt = new WebTransport(
     webtransport_url(`abort-stream-from-server.py?code=${HTTP_CODE}`));
